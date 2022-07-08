@@ -8,7 +8,12 @@ import GP_Highlight_Extractor
 
 
 def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Description")
+    parser = argparse.ArgumentParser(
+        description="""
+        GoPro Dashcam toolkit.
+        Find and print HiLight tags for GoPro videos.
+        """
+    )
 
     requiredNamed = parser.add_argument_group('required named arguments')
 
