@@ -18,7 +18,7 @@ def parse_arguments() -> argparse.Namespace:
     requiredNamed = parser.add_argument_group('required named arguments')
 
     requiredNamed.add_argument("-i", "--input", metavar="INPUT_PATH(s)", required=True, help="Folder to search for videos", type=str, nargs='+')
-    requiredNamed.add_argument("-o", "--output", metavar="OUTPUT_NAME", required=True, help="output video folder", type=str)
+    requiredNamed.add_argument("-o", "--output", metavar="OUTPUT_FOLDER", required=True, help="output video folder, where to put the extracted clips", type=str)
 
     # parser.add_argument("--foo", help="help", type=int, default=0)
     return parser.parse_args()
