@@ -6,11 +6,20 @@ import os
 import subprocess
 import sys
 import typing
+from itertools import chain
 from pathlib import Path
 
+from more_itertools import pairwise
 from pymediainfo import MediaInfo
 
 import GP_Highlight_Extractor
+
+
+def triplewise(iterable: typing.Iterable) -> typing.Generator:
+    "Return overlapping triplets from an iterable"
+    # triplewise('ABCDEFG') -> ABC BCD CDE DEF EFG
+    for (a, _), (b, c) in pairwise(pairwise(chain([None], iterable, [None]))):
+        yield a, b, c
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -162,19 +171,11 @@ def main() -> None:
         prev_ClipData: typing.Optional[ClipData]
         this_ClipData: ClipData
         next_ClipData: typing.Optional[ClipData]
-
-        # create lists with typehints for optional type
-        # insert None first, since type of list to be assigned is not none or an optional variant
-        # and then afterward add the typed class objects to the optional-typed lists, where appropriate...
-        prev_list: typing.List[typing.Optional[ClipData]] = [None]
-        prev_list.extend(recording[:-1])
-
-        next_list: typing.List[typing.Optional[ClipData]] = [None]
-        next_list[0:0] = recording[1:]
-
-        for prev_ClipData, this_ClipData, next_ClipData in zip(prev_list, recording, next_list):
+        for prev_ClipData, this_ClipData, next_ClipData in triplewise(recording):
             try:
                 highlights = GP_Highlight_Extractor.get_highlights([this_ClipData.filename])
+                if len(highlights) == 0:
+                    continue
                 print(this_ClipData, highlights)
                 for highlight in highlights:
                     use_prev_clip = prev_ClipData is not None and highlight - time_before < 0
