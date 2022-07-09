@@ -163,6 +163,9 @@ def main() -> None:
         this_ClipData: ClipData
         next_ClipData: typing.Optional[ClipData]
 
+        # create lists with typehints for optional type
+        # insert None first, since type of list to be assigned is not none or an optional variant
+        # and then afterward add the typed class objects to the optional-typed lists, where appropriate...
         prev_list: typing.List[typing.Optional[ClipData]] = [None]
         prev_list.extend(recording[:-1])
 
