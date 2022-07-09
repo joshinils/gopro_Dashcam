@@ -50,12 +50,23 @@ def is_existing_file(filename: str) -> bool:
 
 class ClipData:
     video_length: typing.Optional[float]
-    filename: str
+    abs_filename: str
+    base_filename: str
+    offset: float
+    hilights: typing.Optional[typing.List[float]]
 
     def __init__(self: 'ClipData', filename: str) -> None:
         self.video_length = None
-        self.filename = filename
+        self.abs_filename = filename
+        self.base_filename = os.path.basename(filename)
+        self.hilights = None
         pass
+
+    def get_hilights(self: 'ClipData') -> typing.List[float]:
+        if self.hilights is None:
+            self.hilights = GP_Highlight_Extractor.get_hilights(self.abs_filename)
+
+        return self.hilights
 
     def get_video_length(self: 'ClipData') -> float:
         if self.video_length is None:
@@ -68,7 +79,7 @@ class ClipData:
                     "format=duration",
                     "-of",
                     "default=noprint_wrappers=1:nokey=1",
-                    self.filename
+                    self.abs_filename
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT
@@ -77,7 +88,7 @@ class ClipData:
         return self.video_length
 
     def __str__(self: 'ClipData') -> str:
-        return self.filename
+        return self.abs_filename
 
 
 def is_video_file(filename: str) -> bool:
@@ -127,14 +138,16 @@ def get_files_in_folder(folder: str) -> typing.Iterable[str]:
             yield os.path.abspath(os.path.join(dirpath, f))
 
 
-def extract_clip() -> None:
-    # ffmpeg -i GHAC6566.MP4 -ss 160.38 -t 10 -codec copy /media/data_nvme0n1p1/gopro_Dashcam/clip1.mp4
-    pass
+def extract_clip(clip_data: ClipData, out_name: str, start: float = 0.0, end: typing.Optional[float] = None) -> None:
+    start_time = "" if start == 0.0 else f"-ss {start}"
+    duration = end - start if end is not None else 0
+    end_time = f"-t {duration}" if end is not None and end < clip_data.get_video_length() else ""
+    print(f"""ffmpeg -i "{clip_data.abs_filename}" {start_time} {end_time} -codec copy "{out_name.replace(os.sep * 2, os.sep)}" -y""".replace("  ", " "))
 
 
 def main() -> None:
     args = parse_arguments()
-    print(args)
+    # print(args)
 
     input_paths: typing.List[str] = list(itertools.chain.from_iterable(args.input))
     output_path: str = args.output
@@ -167,27 +180,48 @@ def main() -> None:
     time_before: float = args.pre_t
     time_after: float = args.post_t
 
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+
     for recording in input_recordings_ClipData:
+        total_clips: int = 0
+        for clip in recording:
+            total_clips += len(clip.get_hilights())
+        total_clips = max(len(str(total_clips)), 2)
+
         prev_ClipData: typing.Optional[ClipData]
         this_ClipData: ClipData
         next_ClipData: typing.Optional[ClipData]
+        clip_index: int = 0
         for prev_ClipData, this_ClipData, next_ClipData in triplewise(recording):
             try:
-                highlights = GP_Highlight_Extractor.get_highlights([this_ClipData.filename])
-                if len(highlights) == 0:
+                if len(this_ClipData.get_hilights()) == 0:
                     continue
-                print(this_ClipData, highlights)
-                for highlight in highlights:
-                    use_prev_clip = prev_ClipData is not None and highlight - time_before < 0
-                    use_next_clip = next_ClipData is not None and highlight + time_after > this_ClipData.get_video_length()
 
-                    print(use_prev_clip, use_next_clip)
+                # print(this_ClipData, this_ClipData.get_hilights())
+                for hilight_time in this_ClipData.get_hilights():
+                    if time_before + time_after > this_ClipData.get_video_length() / 2:
+                        # avoid having to use both the previous _and_ the next clip, so only concatenation of at most two clips is necessary
+                        raise ValueError("the time before and after are too long together, choose shorter clips to extract")
 
+                    use_prev_clip = prev_ClipData is not None and hilight_time - time_before < 0
+                    use_next_clip = next_ClipData is not None and hilight_time + time_after > this_ClipData.get_video_length()
+
+                    if use_prev_clip and prev_ClipData is not None:
+                        next_time_end = prev_ClipData.get_video_length() + hilight_time - time_before
+                        extract_clip(prev_ClipData, f"{output_path}{os.sep}{prev_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}_prev.mkv", start=next_time_end)
+                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}_this.mkv", end=hilight_time + time_after)
+
+                    if use_prev_clip is False and use_next_clip is False:
+                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}.mkv", start=hilight_time - time_before, end=hilight_time + time_after)
+
+                    if use_next_clip and next_ClipData is not None:
+                        next_time_end = hilight_time + time_after - this_ClipData.get_video_length()
+                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}_this.mkv", start=hilight_time - time_before)
+                        extract_clip(next_ClipData, f"{output_path}{os.sep}{next_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}_next.mkv", end=next_time_end)
+                    clip_index += 1
             except Exception as e:
                 print(e)
         print()
-
-    Path(output_path).mkdir(parents=True, exist_ok=True)
 
 
 if __name__ == "__main__":

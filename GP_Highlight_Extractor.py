@@ -76,7 +76,7 @@ def parse_highlights(file_stream: typing.BinaryIO, start_offset: int = 0, end_of
     return listOfHighlights
 
 
-def examine_file(filename: str) -> typing.List[float]:
+def get_hilights(filename: str) -> typing.List[float]:
     file_stream: typing.BinaryIO
     with open(filename, "rb") as file_stream:
         boxes = find_boxes(file_stream)
@@ -104,10 +104,12 @@ def sec2dtime(secs: float) -> str:
     return "%d:%02d:%02d.%03d" % (hour, min, secs, milsec)
 
 
-def get_highlights(fNames: typing.List[str]) -> typing.List[float]:
+def get_hilights_multiple(fNames: typing.List[str]) -> typing.List[float]:
+    # get hilights for multiple files
+
     highlights = []
     for fName in fNames:
-        highlights.extend(examine_file(fName))
+        highlights.extend(get_hilights(fName))
     highlights.sort()
 
     return highlights
