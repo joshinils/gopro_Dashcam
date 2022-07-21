@@ -139,6 +139,22 @@ def get_files_in_folder(folder: str) -> typing.Iterable[str]:
 
 
 def extract_clip(clip_data: ClipData, out_name: str, start: float = 0.0, end: typing.Optional[float] = None) -> None:
+    if start and start < 0.0:
+        start = 0
+        print(f"""start={start} is less than 0, setting to 0.""", file=sys.stderr)
+
+    if end and end < 0.0:
+        end = 0
+        print(f"""end={end} is less than 0, setting to 0.""", file=sys.stderr)
+
+    if start and start > clip_data.get_video_length():
+        start = clip_data.get_video_length()
+        print(f"""start={start} is greater than clip length, setting to clip length.""", file=sys.stderr)
+
+    if end and end > clip_data.get_video_length():
+        end = clip_data.get_video_length()
+        print(f"""end={end} is greater than clip length, setting to clip length.""", file=sys.stderr)
+
     start_time = "" if start == 0.0 else f"-ss {start}"
     duration = end - start if end is not None else 0
     end_time = f"-t {duration}" if end is not None and end < clip_data.get_video_length() else ""
