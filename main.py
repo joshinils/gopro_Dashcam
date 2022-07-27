@@ -48,6 +48,25 @@ def is_existing_file(filename: str) -> bool:
     )
 
 
+def get_date_taken(filename: str) -> str:
+    p = subprocess.Popen(
+        [
+            "ffprobe",
+            "-v", "quiet",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream_tags=creation_time",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            filename
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE)
+    stdout, _ = p.communicate()
+    return stdout.decode("ascii")[:10]
+
+
 class ClipData:
     video_length: typing.Optional[float]
     abs_filename: str
@@ -86,6 +105,9 @@ class ClipData:
             )
             self.video_length = float(result.stdout)
         return self.video_length
+
+    def get_out_name(self: 'ClipData') -> str:
+        return f"{get_date_taken(self.base_filename)}_{self.base_filename}"
 
     def __str__(self: 'ClipData') -> str:
         return self.abs_filename
@@ -217,6 +239,8 @@ def main() -> None:
                 for hilight_time in this_ClipData.get_hilights():
                     if time_before + time_after > this_ClipData.get_video_length() / 2:
                         # avoid having to use both the previous _and_ the next clip, so only concatenation of at most two clips is necessary
+                        print(f"time_before={time_before}, time_after={time_after}, clip={this_ClipData.get_video_length()}", file=sys.stderr)
+                        print(f"{this_ClipData.abs_filename}", file=sys.stderr)
                         raise ValueError("the time before and after are too long together, choose shorter clips to extract")
 
                     use_prev_clip = prev_ClipData is not None and hilight_time - time_before < 0
@@ -224,16 +248,16 @@ def main() -> None:
 
                     if use_prev_clip and prev_ClipData is not None:
                         next_time_end = prev_ClipData.get_video_length() + hilight_time - time_before
-                        extract_clip(prev_ClipData, f"{output_path}{os.sep}{prev_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}_prev.mkv", start=next_time_end)
-                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}_this.mkv", end=hilight_time + time_after)
+                        extract_clip(prev_ClipData, f"{output_path}{os.sep}{prev_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}_prev.mkv", start=next_time_end)
+                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}_this.mkv", end=hilight_time + time_after)
 
                     if use_prev_clip is False and use_next_clip is False:
-                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}.mkv", start=hilight_time - time_before, end=hilight_time + time_after)
+                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}.mkv", start=hilight_time - time_before, end=hilight_time + time_after)
 
                     if use_next_clip and next_ClipData is not None:
                         next_time_end = hilight_time + time_after - this_ClipData.get_video_length()
-                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}_this.mkv", start=hilight_time - time_before)
-                        extract_clip(next_ClipData, f"{output_path}{os.sep}{next_ClipData.base_filename}_clip_{clip_index:0>{total_clips}d}_next.mkv", end=next_time_end)
+                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}_this.mkv", start=hilight_time - time_before)
+                        extract_clip(next_ClipData, f"{output_path}{os.sep}{next_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}_next.mkv", end=next_time_end)
                     clip_index += 1
             except Exception as e:
                 print(e)
