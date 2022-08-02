@@ -171,16 +171,32 @@ def extract_clip(clip_data: ClipData, out_name: str, start: float = 0.0, end: ty
 
     if start and start > clip_data.get_video_length():
         start = clip_data.get_video_length()
-        print(f"""start={start} is greater than clip length, setting to clip length.""", file=sys.stderr)
+        print(f"""start={start} is greater than clip length {clip_data.get_video_length()}, setting to clip length.""", file=sys.stderr)
 
     if end and end > clip_data.get_video_length():
         end = clip_data.get_video_length()
-        print(f"""end={end} is greater than clip length, setting to clip length.""", file=sys.stderr)
+        print(f"""end={end} is greater than clip length {clip_data.get_video_length()}, setting to clip length.""", file=sys.stderr)
 
     start_time = "" if start == 0.0 else f"-ss {start}"
     duration = end - start if end is not None else 0
     end_time = f"-t {duration}" if end is not None and end < clip_data.get_video_length() else ""
     print(f"""ffmpeg -i "{clip_data.abs_filename}" {start_time} {end_time} -codec copy "{out_name.replace(os.sep * 2, os.sep)}" -y""".replace("  ", " "))
+
+
+def combine_clips(file_name_first: str, file_name_second: str, file_name_combined: str) -> None:
+    list_name = f"{file_name_combined}.ffmpeg_combine_list"
+
+    # setup list of files to be combined for ffmped
+    print(f"""echo "" > {list_name}""")
+    print(f"""echo "file '{file_name_first}'" >> {list_name}""")
+    print(f"""echo "file '{file_name_second}'" >> {list_name}""")
+
+    # combine
+    print(f"""ffmpeg -f concat -safe 0 -i {list_name} -c copy {file_name_combined} -y""")
+
+    # cleanup
+    print(f"rm -f {file_name_first} {file_name_second}")
+    print(f"""rm {list_name}""")
 
 
 def main() -> None:
@@ -246,18 +262,27 @@ def main() -> None:
                     use_prev_clip = prev_ClipData is not None and hilight_time - time_before < 0
                     use_next_clip = next_ClipData is not None and hilight_time + time_after > this_ClipData.get_video_length()
 
+                    prev_name = f"{output_path}{os.sep}{prev_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}" if prev_ClipData is not None else ""
+                    this_name = f"{output_path}{os.sep}{this_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}"
+                    next_name = f"{output_path}{os.sep}{next_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}" if next_ClipData is not None else ""
+
                     if use_prev_clip and prev_ClipData is not None:
                         next_time_end = prev_ClipData.get_video_length() + hilight_time - time_before
-                        extract_clip(prev_ClipData, f"{output_path}{os.sep}{prev_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}_prev.mkv", start=next_time_end)
-                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}_this.mkv", end=hilight_time + time_after)
+                        extract_clip(prev_ClipData, f"{prev_name}_prev.mkv", start=next_time_end)
+                        extract_clip(this_ClipData, f"{this_name}_this.mkv", end=hilight_time + time_after)
+
+                        combine_clips(f"{prev_name}_prev.mkv", f"{this_name}_this.mkv", f"{this_name}.mkv")
 
                     if use_prev_clip is False and use_next_clip is False:
-                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}.mkv", start=hilight_time - time_before, end=hilight_time + time_after)
+                        extract_clip(this_ClipData, f"{this_name}.mkv", start=hilight_time - time_before, end=hilight_time + time_after)
 
                     if use_next_clip and next_ClipData is not None:
                         next_time_end = hilight_time + time_after - this_ClipData.get_video_length()
-                        extract_clip(this_ClipData, f"{output_path}{os.sep}{this_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}_this.mkv", start=hilight_time - time_before)
-                        extract_clip(next_ClipData, f"{output_path}{os.sep}{next_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}_next.mkv", end=next_time_end)
+                        extract_clip(this_ClipData, f"{this_name}_this.mkv", start=hilight_time - time_before)
+                        extract_clip(next_ClipData, f"{next_name}_next.mkv", end=next_time_end)
+
+                        combine_clips(f"{this_name}_this.mkv", f"{next_name}_next.mkv", f"{this_name}.mkv")
+
                     clip_index += 1
             except Exception as e:
                 print(e)
