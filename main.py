@@ -12,7 +12,7 @@ from typing import Dict, Generator, Iterable, List, Optional, Set
 from more_itertools import pairwise
 from pymediainfo import MediaInfo
 
-import GP_Highlight_Extractor
+from clip_data import ClipData
 
 
 def triplewise(iterable: Iterable) -> Generator:
@@ -65,111 +65,6 @@ def get_date_taken(filename: str) -> str:
         stderr=subprocess.PIPE)
     stdout, _ = p.communicate()
     return stdout.decode("ascii")[:10]
-
-
-class ClipData:
-    """
-    data on individual file as is on disc
-    """
-    video_length: Optional[float]
-    abs_filename: str
-    base_filename: str
-    offset: float
-    hilights: Optional[List[float]]
-
-    def __init__(self: 'ClipData', filename: str) -> None:
-        self.video_length = None
-        self.abs_filename = filename
-        self.base_filename = os.path.basename(filename)
-        self.hilights = None
-        pass
-
-    def get_hilights(self: 'ClipData') -> List[float]:
-        if self.hilights is None:
-            self.hilights = GP_Highlight_Extractor.get_hilights(self.abs_filename)
-
-        return self.hilights
-
-    def get_video_length(self: 'ClipData') -> float:
-        if self.video_length is None:
-            result = subprocess.run(
-                [
-                    "ffprobe",
-                    "-v",
-                    "error",
-                    "-show_entries",
-                    "format=duration",
-                    "-of",
-                    "default=noprint_wrappers=1:nokey=1",
-                    self.abs_filename
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
-            )
-            self.video_length = float(result.stdout)
-        return self.video_length
-
-    def get_out_name(self: 'ClipData') -> str:
-        return f"{get_date_taken(self.base_filename)}_{self.base_filename}"
-
-    def __str__(self: 'ClipData') -> str:
-        return self.abs_filename
-
-
-class Clip:
-    """
-    a single clip in one file,
-    there may be more than 1 clip per file
-    """
-    filename: str
-    start: float
-    end: float
-
-    def __init__(self: 'Clip', filename: str, start: float, end: float) -> None:
-        self.filename = filename
-        self.start = start
-        self.end = end
-
-    def print_extraction(self: 'Clip', out_name: Optional[str] = None) -> str:
-        return extract_clip(ClipData(self.filename), out_name=out_name, start=self.start, end=self.end)
-
-
-class Extraction:
-    """
-    a single extraction from 1 or more clips.
-    If more than one clip, they will be combined
-    """
-    clips: List[Clip]
-
-    def __init__(self: 'Extraction') -> None:
-        self.clips = []
-
-    def add_clip(self: 'Extraction', clip: Clip) -> None:
-        self.clips.append(clip)
-
-    def print_extraction(self: 'Extraction', out_name: str) -> Optional[str]:
-        if len(self.clips) <= 0:
-            return None
-
-        if len(self.clips) == 1:
-            return self.clips[0].print_extraction(out_name)
-
-        if len(self.clips) == 2:
-            clip_0_name = self.clips[0].print_extraction()
-            clip_1_name = self.clips[1].print_extraction()
-
-            return combine_clips(clip_0_name, clip_1_name, out_name)
-
-        # combine 3 or more clips
-        clip_names: List[str] = []
-        for clip in self.clips:
-            clip_name = clip.print_extraction()
-            clip_names.extend(clip_name)
-
-        current_clip_name = clip_names[0]
-        for clip_name in clip_names[1:-1]:
-            current_clip_name = combine_clips(current_clip_name, clip_name)
-        return combine_clips(current_clip_name, clip_names[-1], out_name)
 
 
 def is_video_file(filename: str) -> bool:
