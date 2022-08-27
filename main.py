@@ -5,9 +5,9 @@ import itertools
 import os
 import subprocess
 import sys
-import typing
 from itertools import chain
 from pathlib import Path
+from typing import Dict, Generator, Iterable, List, Optional, Set
 
 from more_itertools import pairwise
 from pymediainfo import MediaInfo
@@ -15,7 +15,7 @@ from pymediainfo import MediaInfo
 import GP_Highlight_Extractor
 
 
-def triplewise(iterable: typing.Iterable) -> typing.Generator:
+def triplewise(iterable: Iterable) -> Generator:
     "Return overlapping triplets from an iterable"
     # triplewise('ABCDEFG') -> ABC BCD CDE DEF EFG
     for (a, _), (b, c) in pairwise(pairwise(chain([None], iterable, [None]))):
@@ -68,11 +68,14 @@ def get_date_taken(filename: str) -> str:
 
 
 class ClipData:
-    video_length: typing.Optional[float]
+    """
+    data on individual file as is on disc
+    """
+    video_length: Optional[float]
     abs_filename: str
     base_filename: str
     offset: float
-    hilights: typing.Optional[typing.List[float]]
+    hilights: Optional[List[float]]
 
     def __init__(self: 'ClipData', filename: str) -> None:
         self.video_length = None
@@ -81,7 +84,7 @@ class ClipData:
         self.hilights = None
         pass
 
-    def get_hilights(self: 'ClipData') -> typing.List[float]:
+    def get_hilights(self: 'ClipData') -> List[float]:
         if self.hilights is None:
             self.hilights = GP_Highlight_Extractor.get_hilights(self.abs_filename)
 
@@ -113,6 +116,62 @@ class ClipData:
         return self.abs_filename
 
 
+class Clip:
+    """
+    a single clip in one file,
+    there may be more than 1 clip per file
+    """
+    filename: str
+    start: float
+    end: float
+
+    def __init__(self: 'Clip', filename: str, start: float, end: float) -> None:
+        self.filename = filename
+        self.start = start
+        self.end = end
+
+    def print_extraction(self: 'Clip', out_name: Optional[str] = None) -> str:
+        return extract_clip(ClipData(self.filename), out_name=out_name, start=self.start, end=self.end)
+
+
+class Extraction:
+    """
+    a single extraction from 1 or more clips.
+    If more than one clip, they will be combined
+    """
+    clips: List[Clip]
+
+    def __init__(self: 'Extraction') -> None:
+        self.clips = []
+
+    def add_clip(self: 'Extraction', clip: Clip) -> None:
+        self.clips.append(clip)
+
+    def print_extraction(self: 'Extraction', out_name: str) -> Optional[str]:
+        if len(self.clips) <= 0:
+            return None
+
+        if len(self.clips) == 1:
+            return self.clips[0].print_extraction(out_name)
+
+        if len(self.clips) == 2:
+            clip_0_name = self.clips[0].print_extraction()
+            clip_1_name = self.clips[1].print_extraction()
+
+            return combine_clips(clip_0_name, clip_1_name, out_name)
+
+        # combine 3 or more clips
+        clip_names: List[str] = []
+        for clip in self.clips:
+            clip_name = clip.print_extraction()
+            clip_names.extend(clip_name)
+
+        current_clip_name = clip_names[0]
+        for clip_name in clip_names[1:-1]:
+            current_clip_name = combine_clips(current_clip_name, clip_name)
+        return combine_clips(current_clip_name, clip_names[-1], out_name)
+
+
 def is_video_file(filename: str) -> bool:
     fileInfo = MediaInfo.parse(filename)
     for track in fileInfo.tracks:
@@ -121,8 +180,8 @@ def is_video_file(filename: str) -> bool:
     return False
 
 
-def split_file_list_single_recording(lst: typing.List[str]) -> typing.List[typing.List[ClipData]]:
-    folder_dict: typing.Dict[str, typing.Set[str]] = dict()
+def split_file_list_single_recording(lst: List[str]) -> List[List[ClipData]]:
+    folder_dict: Dict[str, Set[str]] = dict()
     for abs_name in lst:
         filename = os.path.basename(abs_name)
         if abs_name.endswith(filename):
@@ -136,7 +195,7 @@ def split_file_list_single_recording(lst: typing.List[str]) -> typing.List[typin
 
     result_lists = []
     for folder in folder_content_list:
-        groups: typing.Dict[str, typing.Set[str]] = dict()
+        groups: Dict[str, Set[str]] = dict()
         for file in folder:
             filename = os.path.basename(file)
             # https://community.gopro.com/s/article/GoPro-Camera-File-Naming-Convention?language=en_US
@@ -154,13 +213,17 @@ def split_file_list_single_recording(lst: typing.List[str]) -> typing.List[typin
     return result_lists
 
 
-def get_files_in_folder(folder: str) -> typing.Iterable[str]:
+def get_files_in_folder(folder: str) -> Iterable[str]:
     for dirpath, _, filenames in os.walk(folder):
         for f in filenames:
             yield os.path.abspath(os.path.join(dirpath, f))
 
 
-def extract_clip(clip_data: ClipData, out_name: str, start: float = 0.0, end: typing.Optional[float] = None) -> None:
+def extract_clip(clip_data: ClipData, out_name: Optional[str], start: float = 0.0, end: Optional[float] = None) -> str:
+    if out_name is None:
+        out_name = f"{clip_data.base_filename}_extract.mkv"
+    out_name = out_name.replace(os.sep * 2, os.sep)
+
     if start and start < 0.0:
         start = 0
         print(f"""start={start} is less than 0, setting to 0.""", file=sys.stderr)
@@ -180,13 +243,16 @@ def extract_clip(clip_data: ClipData, out_name: str, start: float = 0.0, end: ty
     start_time = "" if start == 0.0 else f"-ss {start}"
     duration = end - start if end is not None else 0
     end_time = f"-t {duration}" if end is not None and end < clip_data.get_video_length() else ""
-    print(f"""ffmpeg -i "{clip_data.abs_filename}" {start_time} {end_time} -codec copy "{out_name.replace(os.sep * 2, os.sep)}" -y""".replace("  ", " "))
+    print(f"""ffmpeg -i "{clip_data.abs_filename}" {start_time} {end_time} -codec copy "{out_name}" -y""".replace("  ", " "))
+    return out_name
 
 
-def combine_clips(file_name_first: str, file_name_second: str, file_name_combined: str) -> None:
+def combine_clips(file_name_first: str, file_name_second: str, file_name_combined: Optional[str] = None) -> str:
+    if file_name_combined is None:
+        file_name_combined = f"{file_name_first}.combine.{file_name_second}"
     list_name = f"{file_name_combined}.ffmpeg_combine_list"
 
-    # setup list of files to be combined for ffmped
+    # setup list of files to be combined for ffmpeg
     print(f"""echo "" > {list_name}""")
     print(f"""echo "file '{file_name_first}'" >> {list_name}""")
     print(f"""echo "file '{file_name_second}'" >> {list_name}""")
@@ -197,13 +263,14 @@ def combine_clips(file_name_first: str, file_name_second: str, file_name_combine
     # cleanup
     print(f"rm -f {file_name_first} {file_name_second}")
     print(f"""rm {list_name}""")
+    return file_name_combined
 
 
 def main() -> None:
     args = parse_arguments()
     # print(args)
 
-    input_paths: typing.List[str] = list(itertools.chain.from_iterable(args.input))
+    input_paths: List[str] = list(itertools.chain.from_iterable(args.input))
     output_path: str = args.output
 
     # filter nonexistent input_paths
@@ -229,7 +296,7 @@ def main() -> None:
 
     input_filenames = [filename if os.path.exists(filename) else print(f"""Input filename "{filename}" does not exist!""", file=sys.stderr) for filename in input_filenames if os.path.exists(filename)]
 
-    input_recordings_ClipData: typing.List[typing.List[ClipData]] = split_file_list_single_recording(input_filenames)
+    input_recordings_ClipData: List[List[ClipData]] = split_file_list_single_recording(input_filenames)
 
     time_before: float = args.pre_t
     time_after: float = args.post_t
@@ -242,9 +309,9 @@ def main() -> None:
             total_clips += len(clip.get_hilights())
         total_clips = max(len(str(total_clips)), 2)
 
-        prev_ClipData: typing.Optional[ClipData]
+        prev_ClipData: Optional[ClipData]
         this_ClipData: ClipData
-        next_ClipData: typing.Optional[ClipData]
+        next_ClipData: Optional[ClipData]
         clip_index: int = 0
         for prev_ClipData, this_ClipData, next_ClipData in triplewise(recording):
             try:
@@ -285,7 +352,7 @@ def main() -> None:
 
                     clip_index += 1
             except Exception as e:
-                print(e)
+                print(e, file=sys.stderr)
         print()
 
 
