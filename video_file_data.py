@@ -24,30 +24,29 @@ def get_date_taken(filename: str) -> str:
     return stdout.decode("ascii")[:10]
 
 
-class ClipData:
+class VideoFileData:
     """
     data on individual file as is on disc
     """
     video_length: Optional[float]
     abs_filename: str
     base_filename: str
-    offset: float
     hilights: Optional[List[float]]
 
-    def __init__(self: 'ClipData', filename: str) -> None:
+    def __init__(self: 'VideoFileData', filename: str) -> None:
         self.video_length = None
         self.abs_filename = filename
         self.base_filename = os.path.basename(filename)
         self.hilights = None
         pass
 
-    def get_hilights(self: 'ClipData') -> List[float]:
+    def get_hilights(self: 'VideoFileData') -> List[float]:
         if self.hilights is None:
             self.hilights = GP_Highlight_Extractor.get_hilights(self.abs_filename)
 
         return self.hilights
 
-    def get_video_length(self: 'ClipData') -> float:
+    def get_video_length(self: 'VideoFileData') -> float:
         if self.video_length is None:
             result = subprocess.run(
                 [
@@ -66,8 +65,8 @@ class ClipData:
             self.video_length = float(result.stdout)
         return self.video_length
 
-    def get_out_name(self: 'ClipData') -> str:
+    def get_out_name(self: 'VideoFileData') -> str:
         return f"{get_date_taken(self.base_filename)}_{self.base_filename}"
 
-    def __str__(self: 'ClipData') -> str:
+    def __str__(self: 'VideoFileData') -> str:
         return self.abs_filename

@@ -12,7 +12,9 @@ from typing import Dict, Generator, Iterable, List, Optional, Set
 from more_itertools import pairwise
 from pymediainfo import MediaInfo
 
-from clip_data import ClipData
+from clip import Clip
+from extraction import Extraction
+from video_file_data import VideoFileData
 
 
 def triplewise(iterable: Iterable) -> Generator:
@@ -75,7 +77,7 @@ def is_video_file(filename: str) -> bool:
     return False
 
 
-def split_file_list_single_recording(lst: List[str]) -> List[List[ClipData]]:
+def split_file_list_single_recording(lst: List[str]) -> List[List[VideoFileData]]:
     folder_dict: Dict[str, Set[str]] = dict()
     for abs_name in lst:
         filename = os.path.basename(abs_name)
@@ -103,7 +105,7 @@ def split_file_list_single_recording(lst: List[str]) -> List[List[ClipData]]:
                 print(f"""Input file "{file}" is not a video file! ignoring it.""", file=sys.stderr)
 
         for group_name, group_set in groups.items():
-            result_lists.append([ClipData(filename) for filename in sorted(list(group_set))])
+            result_lists.append([VideoFileData(filename) for filename in sorted(list(group_set))])
 
     return result_lists
 
@@ -114,9 +116,9 @@ def get_files_in_folder(folder: str) -> Iterable[str]:
             yield os.path.abspath(os.path.join(dirpath, f))
 
 
-def extract_clip(clip_data: ClipData, out_name: Optional[str], start: float = 0.0, end: Optional[float] = None) -> str:
+def extract_clip(video_file_data: VideoFileData, out_name: Optional[str], start: float = 0.0, end: Optional[float] = None) -> str:
     if out_name is None:
-        out_name = f"{clip_data.base_filename}_extract.mkv"
+        out_name = f"{video_file_data.base_filename}_extract.mkv"
     out_name = out_name.replace(os.sep * 2, os.sep)
 
     if start and start < 0.0:
@@ -127,18 +129,18 @@ def extract_clip(clip_data: ClipData, out_name: Optional[str], start: float = 0.
         end = 0
         print(f"""end={end} is less than 0, setting to 0.""", file=sys.stderr)
 
-    if start and start > clip_data.get_video_length():
-        start = clip_data.get_video_length()
-        print(f"""start={start} is greater than clip length {clip_data.get_video_length()}, setting to clip length.""", file=sys.stderr)
+    if start and start > video_file_data.get_video_length():
+        start = video_file_data.get_video_length()
+        print(f"""start={start} is greater than clip length {video_file_data.get_video_length()}, setting to clip length.""", file=sys.stderr)
 
-    if end and end > clip_data.get_video_length():
-        end = clip_data.get_video_length()
-        print(f"""end={end} is greater than clip length {clip_data.get_video_length()}, setting to clip length.""", file=sys.stderr)
+    if end and end > video_file_data.get_video_length():
+        end = video_file_data.get_video_length()
+        print(f"""end={end} is greater than clip length {video_file_data.get_video_length()}, setting to clip length.""", file=sys.stderr)
 
     start_time = "" if start == 0.0 else f"-ss {start}"
     duration = end - start if end is not None else 0
-    end_time = f"-t {duration}" if end is not None and end < clip_data.get_video_length() else ""
-    print(f"""ffmpeg -i "{clip_data.abs_filename}" {start_time} {end_time} -codec copy "{out_name}" -y""".replace("  ", " "))
+    end_time = f"-t {duration}" if end is not None and end < video_file_data.get_video_length() else ""
+    print(f"""ffmpeg -i "{video_file_data.abs_filename}" {start_time} {end_time} -codec copy "{out_name}" -y""".replace("  ", " "))
     return out_name
 
 
@@ -191,64 +193,113 @@ def main() -> None:
 
     input_filenames = [filename if os.path.exists(filename) else print(f"""Input filename "{filename}" does not exist!""", file=sys.stderr) for filename in input_filenames if os.path.exists(filename)]
 
-    input_recordings_ClipData: List[List[ClipData]] = split_file_list_single_recording(input_filenames)
+    input_recordings_VideoFileData: List[List[VideoFileData]] = split_file_list_single_recording(input_filenames)
 
     time_before: float = args.pre_t
     time_after: float = args.post_t
 
     Path(output_path).mkdir(parents=True, exist_ok=True)
 
-    for recording in input_recordings_ClipData:
+    for recording in input_recordings_VideoFileData:
         total_clips: int = 0
-        for clip in recording:
-            total_clips += len(clip.get_hilights())
+        for video_file in recording:
+            total_clips += len(video_file.get_hilights())
         total_clips = max(len(str(total_clips)), 2)
 
-        prev_ClipData: Optional[ClipData]
-        this_ClipData: ClipData
-        next_ClipData: Optional[ClipData]
-        clip_index: int = 0
-        for prev_ClipData, this_ClipData, next_ClipData in triplewise(recording):
+        clips: List[Clip] = []
+
+        previous_video_file_data: Optional[VideoFileData]
+        video_file_data: VideoFileData
+        next_video_file_data: Optional[VideoFileData]
+        for previous_video_file_data, video_file_data, next_video_file_data in triplewise(recording):
             try:
-                if len(this_ClipData.get_hilights()) == 0:
+                if len(video_file_data.get_hilights()) == 0:
                     continue
 
-                # print(this_ClipData, this_ClipData.get_hilights())
-                for hilight_time in this_ClipData.get_hilights():
-                    if time_before + time_after > this_ClipData.get_video_length() / 2:
-                        # avoid having to use both the previous _and_ the next clip, so only concatenation of at most two clips is necessary
-                        print(f"time_before={time_before}, time_after={time_after}, clip={this_ClipData.get_video_length()}", file=sys.stderr)
-                        print(f"{this_ClipData.abs_filename}", file=sys.stderr)
-                        raise ValueError("the time before and after are too long together, choose shorter clips to extract")
+                for hilight_time in video_file_data.get_hilights():
+                    hilight_start = hilight_time - time_before
+                    hilight_end = hilight_time + time_after
 
-                    use_prev_clip = prev_ClipData is not None and hilight_time - time_before < 0
-                    use_next_clip = next_ClipData is not None and hilight_time + time_after > this_ClipData.get_video_length()
+                    # use previous clip
+                    if previous_video_file_data is not None and hilight_start < 0:
+                        # assumes overhang into previous clip is shorter than the previous clip is long
+                        # otherwise only all of the previous clip will be used
+                        assert previous_video_file_data.get_video_length() + hilight_start >= 0
 
-                    prev_name = f"{output_path}{os.sep}{prev_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}" if prev_ClipData is not None else ""
-                    this_name = f"{output_path}{os.sep}{this_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}"
-                    next_name = f"{output_path}{os.sep}{next_ClipData.get_out_name()}_clip_{clip_index:0>{total_clips}d}" if next_ClipData is not None else ""
+                        clips.append(
+                            Clip(
+                                previous_video_file_data.abs_filename,
+                                start=previous_video_file_data.get_video_length() + hilight_start,
+                                end=previous_video_file_data.get_video_length() + hilight_end,
+                                hilight_pos=+1
+                            )
+                        )
 
-                    if use_prev_clip and prev_ClipData is not None:
-                        next_time_end = prev_ClipData.get_video_length() + hilight_time - time_before
-                        extract_clip(prev_ClipData, f"{prev_name}_prev.mkv", start=next_time_end)
-                        extract_clip(this_ClipData, f"{this_name}_this.mkv", end=hilight_time + time_after)
+                    # use the clip where the hilight is
+                    clips.append(
+                        Clip(
+                            video_file_data.abs_filename,
+                            start=hilight_start,
+                            end=hilight_end,
+                            hilight_pos=0
+                        )
+                    )
 
-                        combine_clips(f"{prev_name}_prev.mkv", f"{this_name}_this.mkv", f"{this_name}.mkv")
+                    # use next clip
+                    if next_video_file_data is not None and hilight_end > video_file_data.get_video_length():
+                        # clip length depends on this clip, not the next
+                        # thus subtract this clip length from clip end and start to get the
+                        # start and end times in the next clip, no matter how long it is
 
-                    if use_prev_clip is False and use_next_clip is False:
-                        extract_clip(this_ClipData, f"{this_name}.mkv", start=hilight_time - time_before, end=hilight_time + time_after)
+                        # assumes overhang into next clip is shorter than the next clip is long
+                        # otherwise only all of the next clip will be used
+                        assert -video_file_data.get_video_length() + hilight_end <= next_video_file_data.get_video_length()
 
-                    if use_next_clip and next_ClipData is not None:
-                        next_time_end = hilight_time + time_after - this_ClipData.get_video_length()
-                        extract_clip(this_ClipData, f"{this_name}_this.mkv", start=hilight_time - time_before)
-                        extract_clip(next_ClipData, f"{next_name}_next.mkv", end=next_time_end)
+                        clips.append(
+                            Clip(
+                                next_video_file_data.abs_filename,
+                                start=-video_file_data.get_video_length() + hilight_start,
+                                end=-video_file_data.get_video_length() + hilight_end,
+                                hilight_pos=-1
+                            )
+                        )
 
-                        combine_clips(f"{this_name}_this.mkv", f"{next_name}_next.mkv", f"{this_name}.mkv")
-
-                    clip_index += 1
             except Exception as e:
                 print(e, file=sys.stderr)
-        print()
+
+        clips.sort()
+        # print()
+        # print("<clips>")
+        # for clip in clips:
+        #     print(clip)
+        # print("</clips>")
+        # print()
+
+        clip: Clip
+        next_clip: Optional[Clip]
+        extractions: List[Extraction] = []  # per recording
+        extraction_number = 0
+        current_extraction = Extraction(extraction_number=extraction_number, output_path=output_path)
+
+        for clip, next_clip in pairwise(chain(clips, [None])):
+            current_extraction.add_clip(clip)
+            if (
+                next_clip is None  # no next clip to add, stop
+                or not clip.overlaps(next_clip)  # clips not overlapping, start next extraction
+                # or clip.hilight_pos == -1  # this is an overhang, next is another clip
+            ):
+                extractions.append(current_extraction)  # finish compiling clips in extraction
+                current_extraction = Extraction(extraction_number=(extraction_number := extraction_number + 1), output_path=output_path)  # reset extraction
+        # print()
+        # print("<extractions>")
+        # for extraction in extractions:
+        #     print(extraction)
+        # print("</extractions>")
+        # print()
+
+        for extraction in extractions:
+            # print(extraction)
+            extraction.print_extraction()
 
 
 if __name__ == "__main__":
