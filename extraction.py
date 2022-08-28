@@ -9,10 +9,6 @@ from clip import Clip
 
 
 def combine_clips(file_name_first: str, file_name_second: str, file_name_combined: Optional[str] = None) -> str:
-    # print(f"{file_name_first=}")
-    # print(f"{file_name_second=}")
-    # print(f"{file_name_combined=}")
-
     if file_name_combined is None:
         file_name_combined = f"{file_name_first}.combine.{file_name_second}"
     list_name = f"{file_name_combined}.ffmpeg_combine_list"
@@ -97,15 +93,15 @@ class Extraction:
             return clips[0].print_extraction(out_name)
 
         if len(clips) == 2:
-            clip_0_name = clips[0].print_extraction(f"{self.output_path}{os.sep}{clips[0].get_out_name()}_extract_1_of2.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
-            clip_1_name = clips[1].print_extraction(f"{self.output_path}{os.sep}{clips[1].get_out_name()}_extract_2_of2.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
+            clip_0_name = clips[0].print_extraction(f"{self.output_path}{os.sep}{clips[0].get_out_name()}_extract_1_of2_s={clips[0].start}.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
+            clip_1_name = clips[1].print_extraction(f"{self.output_path}{os.sep}{clips[1].get_out_name()}_extract_2_of2_s={clips[1].start}.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
 
             return combine_clips(clip_0_name, clip_1_name, out_name)
 
         # combine 3 or more clips
         clip_names: List[str] = []
         for num, clip in enumerate(clips):
-            clip_name = clip.print_extraction(f"{self.output_path}{os.sep}{clip.get_out_name()}_extract_{num}_of_M.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
+            clip_name = clip.print_extraction(f"{self.output_path}{os.sep}{clip.get_out_name()}_extract_{num}_of_M_s={clip.start}.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
             clip_names.extend([clip_name])
 
         current_clip_name = clip_names[0]

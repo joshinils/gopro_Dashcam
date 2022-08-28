@@ -268,12 +268,6 @@ def main() -> None:
                 print(e, file=sys.stderr)
 
         clips.sort()
-        # print()
-        # print("<clips>")
-        # for clip in clips:
-        #     print(clip)
-        # print("</clips>")
-        # print()
 
         clip: Clip
         next_clip: Optional[Clip]
@@ -286,19 +280,11 @@ def main() -> None:
             if (
                 next_clip is None  # no next clip to add, stop
                 or not clip.overlaps(next_clip)  # clips not overlapping, start next extraction
-                # or clip.hilight_pos == -1  # this is an overhang, next is another clip
             ):
                 extractions.append(current_extraction)  # finish compiling clips in extraction
                 current_extraction = Extraction(extraction_number=(extraction_number := extraction_number + 1), output_path=output_path)  # reset extraction
-        # print()
-        # print("<extractions>")
-        # for extraction in extractions:
-        #     print(extraction)
-        # print("</extractions>")
-        # print()
 
         for extraction in extractions:
-            # print(extraction)
             extraction.print_extraction()
 
 
