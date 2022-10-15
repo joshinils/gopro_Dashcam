@@ -2,6 +2,8 @@ import os
 import subprocess
 from typing import Optional
 
+from run_bash import run_bash
+
 
 class Clip:
     """
@@ -16,20 +18,22 @@ class Clip:
     date_taken: Optional[str]
     hilight_pos: int
     hilight_time: float
+    metadata_filename: str
 
     def __init__(self: 'Clip', filename: str, start: float, end: float, hilight_pos: int, hilight_time: float) -> None:
+        self.video_length = None
+        self.date_taken = None
+
         self.abs_filename = os.path.abspath(filename)
         self.base_filename = os.path.basename(filename)
-        self.start = start
-        self.end = end
+        self.start = max(start, 0)
+        self.end = min(end, self.get_video_length())
         self.hilight_pos = hilight_pos
         self.hilight_time = hilight_time
 
         assert start < end  # yes no empty clips where start == end are allowed
-        self.video_length = None
-        self.date_taken = None
 
-    def print_extraction(self: 'Clip', out_name: Optional[str] = None) -> str:
+    def create_clip_extraction(self: 'Clip', out_name: Optional[str] = None) -> str:
         if out_name is None:
             out_name = f"{self.base_filename}_extract.mkv"
         out_name = out_name.replace(os.sep * 2, os.sep)
@@ -43,10 +47,13 @@ class Clip:
         duration = self.end - self.start if self.end is not None else 0
         end_time = f"-t {duration}" if self.end is not None and self.end < self.get_video_length() else ""
 
-        ffmetadata_file_name = f"{out_name}.ffmetadata"
-        print(f"""ffmpeg -i "{self.abs_filename}" -f ffmetadata "{ffmetadata_file_name}\"""")
-        print(f"""ffmpeg -i "{self.abs_filename}" {start_time} {end_time} -i "{ffmetadata_file_name}" -map_metadata 1 -codec copy "{out_name}" -y""".replace("  ", " ").replace("  ", " ").replace("  ", " "))
-        print(f"""rm "{ffmetadata_file_name}\"""")
+        # maybe ffmpeg always keeps the metadata for a single clip?
+
+        # self.metadata_filename = f"{out_name}.ffmetadata"
+        # run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -i "{self.abs_filename}" -f ffmetadata "{self.metadata_filename} -y\"""")
+        run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -i "{self.abs_filename}" {start_time} {end_time} -codec copy "{out_name}" -y""".replace("  ", " ").replace("  ", " ").replace("  ", " "))
+        # run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -i "{out_name}_nometadata.mkv" -i "{self.metadata_filename}" -map_metadata 1 -codec copy "{out_name}" -y""".replace("  ", " ").replace("  ", " ").replace("  ", " "))
+        # run_bash(f"""rm "{self.metadata_filename}\"""")
         return out_name
 
     def overlaps(self: 'Clip', other: 'Clip') -> bool:
@@ -56,7 +63,7 @@ class Clip:
             return self.start <= other.end and other.start <= self.end
         else:
             # assume 'other' comes immediately after 'self' for later concatenation
-            return self.start <= other.end + self.get_video_length() and other.start <= self.end + self.get_video_length()
+            return self.start <= other.end + self.get_video_length() and other.start + self.get_video_length() <= self.end
 
     def clamp_start(self: 'Clip') -> None:
         if self.start < 0:
@@ -91,6 +98,9 @@ class Clip:
             )
             self.video_length = float(result.stdout)
         return self.video_length
+
+    def get_clip_length(self: 'Clip') -> float:
+        return self.end - self.start
 
     def get_date_taken(self: 'Clip') -> str:
         if self.date_taken is None:

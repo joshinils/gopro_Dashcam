@@ -5,6 +5,7 @@ import itertools
 import os
 import subprocess
 import sys
+import traceback
 from itertools import chain
 from pathlib import Path
 from typing import Dict, Generator, Iterable, List, Optional, Set
@@ -14,6 +15,7 @@ from pymediainfo import MediaInfo
 
 from clip import Clip
 from extraction import Extraction
+from run_bash import run_bash
 from video_file_data import VideoFileData
 
 
@@ -140,7 +142,7 @@ def extract_clip(video_file_data: VideoFileData, out_name: Optional[str], start:
     start_time = "" if start == 0.0 else f"-ss {start}"
     duration = end - start if end is not None else 0
     end_time = f"-t {duration}" if end is not None and end < video_file_data.get_video_length() else ""
-    print(f"""ffmpeg -i "{video_file_data.abs_filename}" {start_time} {end_time} -codec copy "{out_name}" -y""".replace("  ", " "))
+    run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -i "{video_file_data.abs_filename}" {start_time} {end_time} -codec copy "{out_name}" -y""".replace("  ", " "))
     return out_name
 
 
@@ -150,16 +152,16 @@ def combine_clips(file_name_first: str, file_name_second: str, file_name_combine
     list_name = f"{file_name_combined}.ffmpeg_combine_list"
 
     # setup list of files to be combined for ffmpeg
-    print(f"""echo "" > {list_name}""")
-    print(f"""echo "file '{file_name_first}'" >> {list_name}""")
-    print(f"""echo "file '{file_name_second}'" >> {list_name}""")
+    run_bash(f"""echo "" > {list_name}""")
+    run_bash(f"""echo "file '{file_name_first}'" >> {list_name}""")
+    run_bash(f"""echo "file '{file_name_second}'" >> {list_name}""")
 
     # combine
-    print(f"""ffmpeg -f concat -safe 0 -i {list_name} -c copy {file_name_combined} -y""")
+    run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -f concat -safe 0 -i {list_name} -c copy {file_name_combined} -y""")
 
     # cleanup
-    print(f"rm -f {file_name_first} {file_name_second}")
-    print(f"""rm {list_name}""")
+    run_bash(f"rm -f {file_name_first} {file_name_second}")
+    run_bash(f"""rm {list_name}""")
     return file_name_combined
 
 
@@ -219,6 +221,8 @@ def main() -> None:
                 for hilight_time in video_file_data.get_hilights():
                     hilight_start = hilight_time - time_before
                     hilight_end = hilight_time + time_after
+
+                    print(hilight_start, hilight_time, hilight_end)
 
                     # use previous clip
                     if previous_video_file_data is not None and hilight_start < 0:
@@ -288,8 +292,12 @@ def main() -> None:
                 current_extraction = Extraction(extraction_number=(extraction_number := extraction_number + 1), output_path=output_path)  # reset extraction
 
         for extraction in extractions:
-            extraction.print_extraction()
+            extraction.create_extraction()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(e)
+        print(traceback.format_exc())

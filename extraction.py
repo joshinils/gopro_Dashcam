@@ -1,11 +1,13 @@
 import os
 from copy import copy
+from fractions import Fraction
 from itertools import chain
 from typing import List, Optional
 
 from more_itertools import pairwise
 
 from clip import Clip
+from run_bash import run_bash
 
 
 class Extraction:
@@ -17,42 +19,63 @@ class Extraction:
     clips: List[Clip]
     output_path: str
 
+    combine_file_path: str
+
     def __init__(self: 'Extraction', extraction_number: int, output_path: str) -> None:
         self.extraction_number = extraction_number
         self.clips = []
-        self.output_path = output_path
+        self.output_path = (output_path + os.sep).replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep)
+        self.combine_file_path = f"""{self.output_path}{os.sep}combine_{extraction_number}.ffmpeg_combine_list""".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep)
 
     def add_clip(self: 'Extraction', clip: Clip) -> None:
         self.clips.append(clip)
 
-    def combine_clips(self: "Extraction", file_name_first: str, file_name_second: str, file_name_combined: Optional[str] = None, clip_first: Optional[Clip] = None, clip_second: Optional[Clip] = None) -> str:
-        if file_name_combined is None:
-            file_name_combined = f"{os.path.basename(file_name_first)}_combine_{os.path.basename(file_name_second)}"
-        file_name_combined = f"{self.output_path}{os.sep}{os.path.basename(file_name_combined)}".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep)
-        list_name = f"""{self.output_path}{os.sep}{os.path.basename(file_name_combined)}.ffmpeg_combine_list""".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep)
+    def extract_and_combine_all_clips(self: "Extraction", *, out_file_name: str) -> str:
+        extract_filenames = []
+        for index, clip in enumerate(self.clips):
+            extract_filenames.append(clip.create_clip_extraction(f"""{self.output_path}extraction_{self.extraction_number}_{clip.base_filename}_clip_{index+1}_of_{len(self.clips)}.mkv"""))
 
-        # setup list of files to be combined for ffmpeg
-        print(f"""echo "" > "{list_name}\"""")
-        print(f"""echo "file '{file_name_first}'" >> "{list_name}\"""")
-        print(f"""echo "file '{file_name_second}'" >> "{list_name}\"""")
+        with open(self.combine_file_path, "w") as file:
+            for extract_filename in extract_filenames:
+                file.write(f"file '{extract_filename}'\n")
+
+        out_file_name = f"{self.output_path}{os.path.basename(out_file_name)}"
 
         # export metadata
-        ffmetadata_file_name = f"{file_name_first}.ffmetadata"
-        print(f"""ffmpeg -i "{file_name_first}" -f ffmetadata "{ffmetadata_file_name}\"""")
+        ffmetadata_file_name = f"{self.output_path}combine_{self.extraction_number}.ffmetadata"
+        run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -i "{self.clips[0].abs_filename}" -f ffmetadata "{ffmetadata_file_name} -y\"""")
 
-        # # append second metadata
-        # for hilight_time in second_clip.hilights:
-        #     start_time = first_clip.length + hilight_time
-        #     print(f""" echo "[CHAPTER]" >> "{ffmetadata_file_name}\"""")
-        #     print(f""" echo "TIMEBASE=1/{denominator}" >> "{ffmetadata_file_name}\"""")
-        #     print(f""" echo "START={start_time}" >> "{ffmetadata_file_name}\"""")
+        # remove other chapter markers
+        with open(ffmetadata_file_name, "r") as ffmetadata_file:
+            metadata = ffmetadata_file.read()
+        with open(ffmetadata_file_name, "w") as ffmetadata_file:
+            ffmetadata_file.write(metadata.split("[CHAPTER]")[0])
+
+        # add metadata for other clips
+        if len(self.clips) > 1:
+            prev_time = 0.0
+            for clip in self.clips:
+                print(prev_time + clip.hilight_time)
+                frac = Fraction(prev_time + clip.hilight_time - clip.start)
+                limited = frac.limit_denominator(10000)
+                print(frac, limited)
+                with open(ffmetadata_file_name, "a") as ffmetadata_file:
+                    ffmetadata_file.write("[CHAPTER]\n")
+                    ffmetadata_file.write(f"TIMEBASE=1/{limited.denominator}\n")
+                    ffmetadata_file.write(f"START={limited.numerator}\n")
+                    ffmetadata_file.write(f"END={limited.numerator}\n")
+                prev_time += clip.get_clip_length()
 
         # combine
-        print(f"""ffmpeg -f concat -safe 0 -i "{list_name}" -i "{ffmetadata_file_name}" -map_metadata 1 -c copy "{file_name_combined}" -y""")
+        run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -f concat -safe 0 -i "{self.combine_file_path}" -i "{ffmetadata_file_name}" -map_metadata 1 -c copy "{out_file_name}" -y""")
 
         # cleanup
-        print(f"""rm -f "{file_name_first}" "{file_name_second}" "{ffmetadata_file_name}" "{list_name}\"""")
-        return file_name_combined
+        run_bash(f"""rm -f "{self.combine_file_path}"\"""")
+        run_bash(f"""rm -f "{ffmetadata_file_name}"\"""")
+        for extract_filename in extract_filenames:
+            run_bash(f"""rm -f "{extract_filename}"\"""")
+
+        return out_file_name
 
     def get_clean_clip_lengths(self: 'Extraction') -> List[Clip]:
         clips_copy = sorted(self.clips)
@@ -88,13 +111,13 @@ class Extraction:
     @staticmethod
     def add_metadata(in_name: str, out_name: str, hilights: List[float]) -> str:
         ffmetadata_file_name = f"{in_name}.ffmetadata"
-        print(f"""ffmpeg -i "{in_name}" -f ffmetadata "{ffmetadata_file_name}\"""")
-        print(f"""ffmpeg -i "{in_name}" -i "{ffmetadata_file_name}" -map_metadata 1 -codec copy "{out_name}\"""")
-        # print(f"""rm "{in_name}\"""")
-        # print(f"""rm "{ffmetadata_file_name}\"""")
+        run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -i "{in_name}" -f ffmetadata "{ffmetadata_file_name}\"""")
+        run_bash(f"""ffmpeg -hide_banner -loglevel error -stats -i "{in_name}" -i "{ffmetadata_file_name}" -map_metadata 1 -codec copy "{out_name}\"""")
+        # run_bash(f"""rm "{in_name}\"""")
+        # run_bash(f"""rm "{ffmetadata_file_name}\"""")
         return out_name
 
-    def print_extraction(self: 'Extraction', out_name: Optional[str] = None) -> Optional[str]:
+    def create_extraction(self: 'Extraction', out_name: Optional[str] = None) -> Optional[str]:
         clips = self.get_clean_clip_lengths()
 
         if len(clips) <= 0:
@@ -109,27 +132,9 @@ class Extraction:
         assert out_name is not None
 
         if len(clips) == 1:
-            return clips[0].print_extraction(out_name)
+            return clips[0].create_clip_extraction(out_name)
 
-        if len(clips) == 2:
-            clip_0_name = clips[0].print_extraction(f"{self.output_path}{os.sep}{clips[0].get_out_name()}_extract_1_of2_s={clips[0].start}.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
-            clip_1_name = clips[1].print_extraction(f"{self.output_path}{os.sep}{clips[1].get_out_name()}_extract_2_of2_s={clips[1].start}.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
-
-            return self.combine_clips(clip_0_name, clip_1_name, out_name)
-
-        # combine 3 or more clips
-        clip_names: List[str] = []
-        hilights = []
-        for num, clip in enumerate(clips):
-            clip_name = clip.print_extraction(f"{self.output_path}{os.sep}{clip.get_out_name()}_extract_{num}_of_M_s={clip.start}.mkv".replace(os.sep * 2, os.sep).replace(os.sep * 2, os.sep))
-            clip_names.extend([clip_name])
-            hilights.append(clip.hilight_time)
-
-        current_clip_name = clip_names[0]
-        for clip_name in clip_names[1:-1]:
-            current_clip_name = self.combine_clips(current_clip_name, clip_name)
-
-        return self.combine_clips(current_clip_name, clip_names[-1], out_name)
+        return self.extract_and_combine_all_clips(out_file_name=out_name)
 
     def __repr__(self: 'Extraction') -> str:
         ret = "EXTRACTION=[clips=\n"
