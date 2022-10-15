@@ -5,10 +5,11 @@ import itertools
 import os
 import subprocess
 import sys
+import textwrap
 import traceback
 from itertools import chain
 from pathlib import Path
-from typing import Dict, Generator, Iterable, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, Generator, Iterable, List, Optional, Set  # NOQA
 
 from more_itertools import pairwise
 from pymediainfo import MediaInfo
@@ -17,6 +18,9 @@ from clip import Clip
 from extraction import Extraction
 from run_bash import run_bash
 from video_file_data import VideoFileData
+
+if TYPE_CHECKING:
+    from argparse import Action
 
 
 def triplewise(iterable: Iterable) -> Generator:
@@ -27,20 +31,93 @@ def triplewise(iterable: Iterable) -> Generator:
 
 
 def parse_arguments() -> argparse.Namespace:
+    class CustomHelpFormatter(argparse.HelpFormatter):
+        def __init__(self: 'CustomHelpFormatter', prog: str) -> None:
+            super().__init__(prog, max_help_position=8)
+            # import re
+            # self._whitespace_matcher = re.compile(r'[.]+', re.ASCII)
+
+        def _format_action_invocation(self: 'CustomHelpFormatter', action: 'Action') -> str:
+            if not action.option_strings:
+                return "  " + super()._format_action_invocation(action)
+            default = self._get_default_metavar_for_optional(action)
+            args_string = self._format_args(action, default)
+            default_value = ""
+            if action.default is not None and action.default is not argparse.SUPPRESS:
+                default_value = f"  (Default: {action.default})"
+            return f"  {action.option_strings[0]} {args_string}{default_value}\n    {action.option_strings[1]} {args_string}"
+
+        def _split_lines(self: 'CustomHelpFormatter', text: str, width: int) -> List[str]:
+            ret = []
+            for line in text.splitlines():
+                if len(line) > width:
+                    ret.extend(textwrap.wrap(line, width, replace_whitespace=False, break_long_words=False))
+                else:
+                    ret.extend([line])
+
+            # add empty line to separate each argument
+            if len(ret[-1]) > 0:
+                ret.extend([''])
+
+            return ret
+
     parser = argparse.ArgumentParser(
+        formatter_class=CustomHelpFormatter,
         description="""
         GoPro Dashcam toolkit.
         Find and print HiLight tags for GoPro videos.
-        """
+        """,
+        add_help=False
     )
 
     requiredNamed = parser.add_argument_group('required named arguments')
 
-    requiredNamed.add_argument("-i", "--input", metavar="INPUT_PATH(s)", required=True, help="Folder to search for videos", type=str, nargs='+', action="append")
-    requiredNamed.add_argument("-o", "--output", metavar="OUTPUT_FOLDER", required=True, help="output video folder, where to put the extracted clips", type=str)
+    requiredNamed.add_argument(
+        "-i",
+        "--input",
+        metavar="INPUT_PATH(s)",
+        required=True,
+        help="Folder(s) to search for videos (recursively)",
+        type=str,
+        nargs='+',
+        action="append"
+    )
 
-    parser.add_argument("--pre_t", metavar="TIME_BEFORE", help="time before a HiLight mark, in seconds. default=30sec", type=float, default=30)
-    parser.add_argument("--post_t", metavar="TIME_AFTER", help="time after a HiLight mark, in seconds. default=10sec", type=float, default=10)
+    requiredNamed.add_argument(
+        "-o",
+        "--output",
+        metavar="OUTPUT_FOLDER",
+        required=True,
+        help="output video folder, where to put the extracted clips and intermediary files",
+        type=str
+    )
+
+    optionalArgs = parser.add_argument_group('optional arguments:')
+    optionalArgs.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="show this help message and exit"
+    )
+
+    optionalArgs.add_argument(
+        "-pre_t",
+        "--pre_time",
+        metavar="TIME_BEFORE",
+        help="timespan to include before a HiLight mark, in seconds.",
+        type=float,
+        default=30
+    )
+
+    optionalArgs.add_argument(
+        "-post_t",
+        "--post_time",
+        metavar="TIME_AFTER",
+        help="timespan to include after a HiLight mark, in seconds.",
+        type=float,
+        default=10
+    )
+
     return parser.parse_args()
 
 
@@ -197,8 +274,8 @@ def main() -> None:
 
     input_recordings_VideoFileData: List[List[VideoFileData]] = split_file_list_single_recording(input_filenames)
 
-    time_before: float = args.pre_t
-    time_after: float = args.post_t
+    time_before: float = args.pre_time
+    time_after: float = args.post_time
 
     Path(output_path).mkdir(parents=True, exist_ok=True)
 
