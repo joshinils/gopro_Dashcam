@@ -222,8 +222,6 @@ def main() -> None:
                     hilight_start = hilight_time - time_before
                     hilight_end = hilight_time + time_after
 
-                    print(hilight_start, hilight_time, hilight_end)
-
                     # use previous clip
                     if previous_video_file_data is not None and hilight_start < 0:
                         # assumes overhang into previous clip is shorter than the previous clip is long

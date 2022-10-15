@@ -55,10 +55,8 @@ class Extraction:
         if len(self.clips) > 1:
             prev_time = 0.0
             for clip in self.clips:
-                print(prev_time + clip.hilight_time)
                 frac = Fraction(prev_time + clip.hilight_time - clip.start)
                 limited = frac.limit_denominator(10000)
-                print(frac, limited)
                 with open(ffmetadata_file_name, "a") as ffmetadata_file:
                     ffmetadata_file.write("[CHAPTER]\n")
                     ffmetadata_file.write(f"TIMEBASE=1/{limited.denominator}\n")
