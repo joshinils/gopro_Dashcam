@@ -15,13 +15,15 @@ class Clip:
     video_length: Optional[float]
     date_taken: Optional[str]
     hilight_pos: int
+    hilight_time: float
 
-    def __init__(self: 'Clip', filename: str, start: float, end: float, hilight_pos: int) -> None:
+    def __init__(self: 'Clip', filename: str, start: float, end: float, hilight_pos: int, hilight_time: float) -> None:
         self.abs_filename = os.path.abspath(filename)
         self.base_filename = os.path.basename(filename)
         self.start = start
         self.end = end
         self.hilight_pos = hilight_pos
+        self.hilight_time = hilight_time
 
         assert start < end  # yes no empty clips where start == end are allowed
         self.video_length = None
@@ -40,7 +42,11 @@ class Clip:
         start_time = "" if self.start == 0.0 else f"-ss {self.start}"
         duration = self.end - self.start if self.end is not None else 0
         end_time = f"-t {duration}" if self.end is not None and self.end < self.get_video_length() else ""
-        print(f"""ffmpeg -i "{self.abs_filename}" {start_time} {end_time} -codec copy "{out_name}" -y""".replace("  ", " ").replace("  ", " ").replace("  ", " "))
+
+        ffmetadata_file_name = f"{out_name}.ffmetadata"
+        print(f"""ffmpeg -i "{self.abs_filename}" -f ffmetadata "{ffmetadata_file_name}\"""")
+        print(f"""ffmpeg -i "{self.abs_filename}" {start_time} {end_time} -i "{ffmetadata_file_name}" -map_metadata 1 -codec copy "{out_name}" -y""".replace("  ", " ").replace("  ", " ").replace("  ", " "))
+        print(f"""rm "{ffmetadata_file_name}\"""")
         return out_name
 
     def overlaps(self: 'Clip', other: 'Clip') -> bool:

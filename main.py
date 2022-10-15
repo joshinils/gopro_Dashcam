@@ -231,7 +231,8 @@ def main() -> None:
                                 previous_video_file_data.abs_filename,
                                 start=previous_video_file_data.get_video_length() + hilight_start,
                                 end=previous_video_file_data.get_video_length() + hilight_end,
-                                hilight_pos=+1
+                                hilight_pos=+1,
+                                hilight_time=hilight_time,
                             )
                         )
 
@@ -241,7 +242,8 @@ def main() -> None:
                             video_file_data.abs_filename,
                             start=hilight_start,
                             end=hilight_end,
-                            hilight_pos=0
+                            hilight_pos=0,
+                            hilight_time=hilight_time,
                         )
                     )
 
@@ -260,7 +262,8 @@ def main() -> None:
                                 next_video_file_data.abs_filename,
                                 start=-video_file_data.get_video_length() + hilight_start,
                                 end=-video_file_data.get_video_length() + hilight_end,
-                                hilight_pos=-1
+                                hilight_pos=-1,
+                                hilight_time=hilight_time,
                             )
                         )
 
